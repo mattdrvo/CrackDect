@@ -5,7 +5,7 @@ with open('README.md', 'r') as f:
 
 setup(
     name='crackdect',  # Required
-    version='0.1',  # Required
+    version='0.1.1',  # Required
     description='crack detection for composite materials',  # Optional
     long_description=long_description,  # Optional
     long_description_content_type='text/markdown',  # Optional
@@ -13,11 +13,12 @@ setup(
     author='Matthias Drvoderic',  # Optional
     author_email='matthias.drvoderic@unileoben.ac.at',  # Optional
     classifiers=[  # Optional
-        'Intended Audience :: Science/Engineering',
-        'Topic :: Crack Detection :: Composites :: Image Processing',
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: Science/Research',
+        'Topic :: Scientific/Engineering :: Image Processing',
         'Programming Language :: Python :: 3.8',
         'Operating System :: OS Independent',
-        'License :: MIT License'
+        'License :: OSI Approved :: MIT License'
     ],
     keywords='crackdetection composites imageprocessing imagestack',  # Optional
     # package_dir={'': 'crackdect'},  # Optional
@@ -29,7 +30,8 @@ setup(
                       'scikit-image',
                       'sqlalchemy',
                       'numba',
-                      'matplotlib'
+                      'matplotlib',
+                      'psutil',
                       ],
     package_data={},
 )
