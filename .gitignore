@@ -129,3 +129,5 @@ dmypy.json
 .pyre/
 /docs/source/generated/
 /docs/GIF/
+/docs/build/
+/test_images/

@@ -19,10 +19,10 @@ E.g histogram equalisation for the whole image stack can be done in one line of 
 
 .. code-block::
 
-    >>> import crackdect as cd
-    >>> from skimage import exposure
+    import crackdect as cd
+    from skimage import exposure
 
-    >>> stack.execute_function(exposure.equalize_adapthist, clip_limit=0.03)
+    stack.execute_function(exposure.equalize_adapthist, clip_limit=0.03)
 
 This performs *equalize_adapthist* on all images in the stack with a clip limit of 0.03. *clip_limit* is a
 keyword argument of *equalize_adapthist*.
@@ -33,11 +33,11 @@ and the most flexibility.
 
 .. code-block::
 
-    >>> def contrast_stretching(img):
-    >>>     p5, p95 = np.percentile(img, (5, 95))
-    >>>     return exposure.rescale_intensity(img, in_range=(p5, p95))
+    def contrast_stretching(img):
+        p5, p95 = np.percentile(img, (5, 95))
+        return exposure.rescale_intensity(img, in_range=(p5, p95))
 
-    >>> stack.execute_function(custom_stretching)
+    stack.execute_function(custom_stretching)
 
 Rolling Operations
 ------------------
@@ -50,10 +50,10 @@ Applying this function to the image stack would look like this:
 
 .. code-block::
 
-    >>> def simple_differencing(img1, img2):
-    >>>     return img2-img1
+    def simple_differencing(img1, img2):
+        return img2-img1
 
-    >>> stack.execute_rolling_function(simple_differencing, keep_first=False)
+    stack.execute_rolling_function(simple_differencing, keep_first=False)
 
 This will evaluate *simple_differencing* for all images starting from the second image in the stack. The n-th image
 in the stack is computed with this schema.
@@ -74,7 +74,7 @@ shift correction. This package comes with functions for these routines. There ar
 other useful functions like cutting to the region of interest in :mod:`~.stack_operations`.
 
 All the functions in :mod:`~.stack_operations` take an image stack and return the stack with the results of the
-routine. Thew images in the stack get changed. If the state of the image stack prior to applying a routine should
+routine. The images in the stack get changed. If the state of the image stack prior to applying a routine should
 be kept, copy the stack before.
 
 For more information see the documentation from :mod:`~.stack_operations`.

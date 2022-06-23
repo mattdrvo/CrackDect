@@ -1,5 +1,5 @@
 """
-This module provedes the core functionality for handling a stack of images at once.
+This module provides the core functionality for handling a stack of images at once.
 
 Image stacks are objects that hold multiple images and act in many cases like python lists. They can
 be indexed and images in the stack can be changed. All images in one image stack must have the same dtype. If
@@ -254,7 +254,9 @@ class ImageStack:
         kwargs:
             kwargs are forwarded to
             `skimage.io.imread <https://scikit-image.org/docs/dev/api/skimage.io.html#skimage.io.imread>`_
-            For grayscale images simply add **as_gray = True**.
+            For grayscale images simply add **as_gray = True**. For the kwargs for colored images use
+            `parameters for reading <https://imageio.readthedocs.io/en/stable/_autosummary/imageio.plugins.pillow_legacy.html#module-imageio.plugins.pillow_legacy>`_.
+            Keep in mind that some images might have alpha channels and some not even if they have the same format.
 
         Returns
         -------
@@ -496,7 +498,9 @@ class ImageStackSQL:
         kwargs:
             kwargs are forwarded to
             `skimage.io.imread <https://scikit-image.org/docs/dev/api/skimage.io.html#skimage.io.imread>`_
-            For grayscale images simply add **as_gray = True**.
+            For grayscale images simply add **as_gray = True**. For the kwargs for colored images use
+            `parameters for reading <https://imageio.readthedocs.io/en/stable/_autosummary/imageio.plugins.pillow_legacy.html#module-imageio.plugins.pillow_legacy>`_.
+            Keep in mind that some images might have alpha channels and some not even if they have the same format.
 
         Returns
         -------

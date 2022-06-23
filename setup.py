@@ -5,7 +5,7 @@ with open('README.md', 'r') as f:
 
 setup(
     name='crackdect',  # Required
-    version='0.1.1',  # Required
+    version='0.2',  # Required
     description='crack detection for composite materials',  # Optional
     long_description=long_description,  # Optional
     long_description_content_type='text/markdown',  # Optional

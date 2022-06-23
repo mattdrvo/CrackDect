@@ -3,10 +3,18 @@ CrackDect: Expandable crack detection for composite materials.
 
 .. figure:: images/overview_gif.gif
 
-This package provides an automated crack detection for tunneling off axis cracks in glass fiber reinforced materials.
-It relies on image processing and works with transilluminated white light images (TWLI). The basis of the
-crack detection method was first published by Glud et al. [1]_. This implementation is aimed to provide a modular
-"batteries included" package for this method and extensions of it as well as image preprocessing functions.
+This package provides crack detection algorithms for tunneling off axis cracks in
+glass fiber reinforced materials.
+
+| Full paper: `<https://www.sciencedirect.com/science/article/pii/S2352711021001205>`_
+| Full documentation: `<https://crackdect.readthedocs.io/en/latest>`_
+
+If you use this package in publications, please cite the paper.
+
+In this package, crack detection algorithms based on the works of Glud et al. [1]_ and Bender et al. [2]_ are implemented.
+This implementation is aimed to provide a modular "batteries included" package for
+this crack detection algorithms as well as a framework to preprocess image series to suite the
+prerequisites of the different crack detection algorithms.
 
 Quick start
 -----------
@@ -66,10 +74,12 @@ for crack detection in composite materials and the framework to efficiently appl
 
 .. toctree::
    :caption: Examples
+   :hidden:
 
    quickstart
    imagestack_intro
    preprocessing
+   shift_correction
    crack_detection
 
 
@@ -91,7 +101,7 @@ Modules
     imagestack
     image_functions
     stack_operations
-    _io
+    io
     crack_detection
     visualization
 
@@ -111,6 +121,6 @@ Indices and tables
 * :ref:`genindex`
 
 
-.. [1] J.A. Glud, J.M. Dulieu-Barton, O.T. Thomsen, L.C.T. Overgaard
-   Automated counting of off-axis tunnelling cracks using digital image processing
-   Compos. Sci. Technol., 125 (2016), pp. 80-89
+.. [1] `J.A. Glud, J.M. Dulieu-Barton, O.T. Thomsen, L.C.T. Overgaard Automated counting of off-axis tunnelling cracks using digital image processing Compos. Sci. Technol., 125 (2016), pp. 80-89 <https://www.sciencedirect.com/science/article/abs/pii/S0266353816300197>`_
+
+.. [2] `Bender JJ, Bak BLV, Jensen SM, Lindgaard E. Effect of variable amplitude block loading on intralaminar crack initiation and propagation in multidirectional GFRP laminate Composites Part B: Engineering. 2021 Jul <https://www.researchgate.net/publication/350967596_Effect_of_variable_amplitude_block_loading_on_intralaminar_crack_initiation_and_propagation_in_multidirectional_GFRP_laminate>`_

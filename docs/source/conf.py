@@ -40,7 +40,6 @@ imgmath_latex_preamble = r'\usepackage{xcolor}'  # mathematical expressions can 
 
 html_theme = 'sphinx_rtd_theme'
 
-
 # -- autosummary settings -------------------------------------------------------
 autosummary_generate = True
 autosummary_imported_members = False
@@ -65,7 +64,7 @@ numpydoc_show_inherited_class_members = False
 # -- Project information -----------------------------------------------------
 
 project = 'CrackDect'
-copyright = '2021, Matthias Drvoderic'
+copyright = '2022, Matthias Drvoderic'
 author = 'Matthias Drvoderic'
-version = '0.1'
-release = '0.1'
+version = '0.2'
+release = '0.2'

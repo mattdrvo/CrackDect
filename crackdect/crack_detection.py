@@ -8,13 +8,15 @@ as input.
 
 """
 import numpy as np
-from skimage.morphology._skeletonize_cy import _fast_skeletonize
-from skimage.morphology._skeletonize import skeletonize_3d
-from skimage.transform import rotate
-from skimage.filters import gabor_kernel, threshold_otsu, threshold_yen
+from numpy.lib.utils import deprecate_with_doc
 from scipy.signal import convolve
 from numba import jit, int32
-from .imagestack import _add_to_docstring
+# from skimage.morphology._skeletonize_cy import _fast_skeletonize
+from skimage.morphology._skeletonize import skeletonize_3d
+from skimage.morphology import closing
+from skimage.transform import rotate
+from skimage.filters import gabor_kernel, threshold_otsu, threshold_yen, gaussian, unsharp_mask
+from skimage.util import img_as_float
 from skimage.filters._gabor import _sigma_prefactor
 
 
@@ -24,7 +26,7 @@ _THRESHOLDS = {'yen': threshold_yen,
 
 def rotation_matrix_z(phi):
     """
-    Rotation matrix around Z
+    Rotation matrix around the z-axis.
 
     Computes the rotation matrix for the angle phi(radiant) around the z-axis
 
@@ -42,7 +44,7 @@ def rotation_matrix_z(phi):
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
-def sigma_gabor(lam, bandwidth=1):
+def _sigma_gabor(lam, bandwidth=1):
     """
     Compute the standard deviation for the gabor filter in dependence of the wavelength and the
     bandwidth.
@@ -68,7 +70,7 @@ def sigma_gabor(lam, bandwidth=1):
 
 
 @jit(nopython=True, cache=True)
-def find_crack_end(sk_image, start_row, start_col):
+def _find_crack_end(sk_image, start_row, start_col):
     """
     Finde the end of one crack.
 
@@ -111,11 +113,11 @@ def find_crack_end(sk_image, start_row, start_col):
         if active_col == 0:
             check_cols = [0, 1]
         elif active_col == cn:
-            check_cols = [active_col, active_col-1]
+            check_cols = [active_col, active_col - 1]
         else:
-            check_cols = [active_col, active_col-1, active_col+1]
+            check_cols = [active_col, active_col - 1, active_col + 1]
 
-        b, new_col = check_columns(active_row+1, check_cols)
+        b, new_col = check_columns(active_row + 1, check_cols)
         if b:
             active_col = new_col
         else:
@@ -161,8 +163,7 @@ def find_cracks(skel_im, min_size):
                 crack_start = np.array((row, col), dtype=np.int32)
 
                 # search row wise for the crack end
-                # crack_end = np.array(_find_crack_end_fast(image, rows, crack_start), dtype=np.int32)
-                crack_end = np.array(find_crack_end(image, row, col), dtype=np.int32)
+                crack_end = np.array(_find_crack_end(image, row, col), dtype=np.int32)
 
                 # apply a min_size criterion
                 x, y = np.subtract(crack_start, crack_end)
@@ -239,6 +240,42 @@ def crack_density(cracks, area):
     return np.sum(np.hypot(*v.T)) / area
 
 
+def anisotropic_gauss_kernel(sig_x, sig_y, theta=0, truncate=3):
+    """
+    Gaussian kernel with different standard deviations in x and y direction.
+
+    Parameters
+    ----------
+    sig_x: int
+        Standard deviation in x-direction.
+        A value of e.g. 5 means that the Gaussian kernel will reach a standard deviation of 1 after 5 pixel.
+    sig_y: int
+        Standard deviation in y-direction.
+    theta: float
+        Angle in degrees
+    truncate: float
+        Truncate the filter at this many standard deviations.
+        Default is 4.0.
+    Returns
+    -------
+    kernel: ndarray
+        The Gaussian kernel as a 2D array.
+    """
+    r_x = int(truncate * sig_x + 0.5)
+    r_y = int(truncate * sig_y + 0.5)
+    xx = np.arange(-r_x, r_x + 1)
+    yy = np.arange(-r_y, r_y + 1)
+    sig_x2 = sig_x * sig_x
+    sig_y2 = sig_y * sig_y
+
+    phi_x = np.exp(-0.5 / sig_x2 * xx ** 2)
+    phi_y = np.exp(-0.5 / sig_y2 * yy ** 2)
+    kernel = np.outer(phi_x, phi_y)
+    if theta != 0:
+        kernel = rotate(kernel, theta, resize=True, order=3)
+    return kernel / np.sum(kernel)
+
+
 class CrackDetectionTWLI:
     r"""
     The basic method from Glud et al. for crack detection without preprocessing.
@@ -283,7 +320,7 @@ class CrackDetectionTWLI:
         Generally, yen is not as sensitive as otsu. For blurry images with lots of noise yen is nearly always
         better than otsu.
     sensitivity: float, optional
-        Adds or subtracts x percent of the input image range to the Otsu-threshold. E.g. sensitivity=-10 will lower
+        Adds or subtracts x percent of the input image range to the threshold. E.g. sensitivity=-10 will lower
         the threshold to determine foreground by 10 percent of the input image range. For crack detection with
         bad image quality or lots of artefacts it can be helpful to lower the sensitivity to avoid too much false
         detections.
@@ -406,16 +443,158 @@ class CrackDetectionTWLI:
         return self.detect_cracks(image, **kwargs)
 
 
-def detect_cracks(images, theta=0, crack_width=10, ar=2, bandwidth=1, n_stds=3,
-                  min_size=5, threshold='yen', sensitivity=0):
-    """
-    Crack detection for an image stack. 
-    
-    All images are treated independent. The crack detection is performed for all images according to the 
-    input parameters.
+class CrackDetectionBender:
+    r"""
+    Base class for the crack detection `method by J.J. Bender
+    <https://www.researchgate.net/publication/350967596_Effect_of_variable_amplitude_block_loading_on_intralaminar_crack_initiation_and_propagation_in_multidirectional_GFRP_laminate>`_.
+
+    This crack detection algorithm only works on an image stack with consecutive images of one specimen.
+    The first image is used as the background image.
+    No cracks are detected in the first image. The images must be aligned for this algorithm to
+    work correctly. Cracks can only be detected in grayscale images with the same shape.
+
+    Following filters are applied to the images:
+    1: Apply image history. Images must become darker with time. This subsequently reduces noise in the imagestack
+    2: Image division with reference image (first image of the stack) to remove constant objects.
+    3: The image is divided by a blurred version of itself to remove the background.
+    4: A directional Gaussian filter is applied to diminish cracks in other directions.
+    5: Images are sharpened with an `unsharp_mask <https://scikit-image.org/docs/stable/auto_examples/filters/plot_unsharp_mask.html>`_.
+    6: A threshold is applied to remove falsely identified cracks or artefacts with a weak signal.
+    7: Morphological closing of the image with a crack-like footprint.
+    8: Binarization of the image
+    9: The n-1st binaritzed image is added.
+    10: Finde the cracks with the skeletonizing and scanning method.
 
     Parameters
     ----------
+    theta: float
+        Angle of the cracks in respect to a horizontal line in degrees
+    crack_width: int
+        The approximate width of an average crack in pixel. This determines the width of the detected features.
+    threshold: float, optional
+        Threshold of what is perceived as a crack after all filters. E.g. 0.96 means that all gray values over 0.96
+        in the filtered image are cracks. This value should be close to 1. A lower value will detect cracks with a
+        weak signal but more artefacts as well. Default: 5
+    min_size: int, optional
+        The minimal number of pixels a crack can be. Cracks under this size will not get counted. Default: 5
+
+    Returns
+    -------
+    rho_c: float
+        Crack density [1/px]
+    cracks: np.ndarray
+        Array with the coordinates of the crack with the following structure:
+        ([[x0, y0],[x1,y1], [...]]) where x0 and y0 are the starting coordinates and x1, y1
+        the end of one crack. Each crack is represented by a 2x2 array stacked into a bigger array (x,2,2).
+    rho_th: float
+        A measure how much of the area of the input image is detected as foreground. If the gabor filter can not
+        distinguish between cracks with very little space in between the crack detection will break down and
+        lead to false results. If this value is high but the crack density is low, this is an indicator that
+        the crack detection does not work with the given input parameters and the input image.
+        """
+
+    def __init__(self, theta=0, crack_width=10, threshold=0.96, min_size=None):
+        self.crack_width = int(crack_width)
+        self.theta = theta % 360
+        if threshold >= 1:
+            raise ValueError('The threshold must be lower than 1!')
+        self.threshold = threshold
+
+        self.gk = anisotropic_gauss_kernel(crack_width, crack_width / 2, -theta, truncate=3)
+        self.closing_footprint = self.make_footprint(self.crack_width, self.theta)
+        if min_size is None:
+            self.min_size = crack_width * 4
+        else:
+            self.min_size = min_size
+
+    def detect_cracks(self, images):
+        if len(images) <= 1:
+            raise ValueError('This crack detection algorithm needs more than one image to detect cracks. The first'
+                             'image in the input stack must be the reference and no cracks will be detected in this'
+                             'image.')
+        img_0 = img_as_float(images[0], force_copy=True)
+        hist_img = img_0.copy()
+        pattern_n1 = np.zeros(img_0.shape, dtype=bool)
+
+        cd, cracks, threshold = [0], [np.array([])], [0]
+        for ind in range(1, len(images)):
+            # step 1: applying image history on the n-th image. (0, 1) = (black, white)
+            img_n = img_as_float(images[ind], force_copy=True)
+            if img_n.shape != hist_img.shape:
+                raise ValueError(f'The shape of image {ind} and {ind - 1} is {img_n.shape} and {hist_img.shape}.'
+                                 f'This is not allowed since all images must have the same shape for this algorithm to'
+                                 f'work.')
+            mask = img_n > hist_img
+            img_n[mask] = hist_img[mask]
+            hist_img = img_n.copy()
+
+            # step 2: change detection with division. No need for cutoff since values can only range from >0 to 1.
+            # With history, nth image is always lower than n-1st. -> white = no change, black = change
+            img_n = np.divide(img_n, img_0, out=np.ones_like(img_n), where=img_0 != 0)
+
+            # step 3: division with blurred image
+            img_n = img_n / gaussian(img_n, sigma=self.crack_width)
+
+            # step 4: Directional Gaussian filter
+            img_n = self.anisotropic_gauss_filter(img_n, self.gk)
+
+            # step 5: sharpening image -> will rescale to 0-1
+            img_n = unsharp_mask(img_n, radius=self.crack_width, amount=2, preserve_range=False)
+
+            # step 6: apply threshold to % of the current range of the image
+            img_n[img_n > self.threshold] = 1
+
+            # step 7: morphological closing with line element
+            img_n = closing(img_n, self.closing_footprint)
+
+            # step 8: binarization with threshold of 99% -> only 0 and 1 in image
+            img_n[img_n < 0.99] = 0
+
+            # step 9: computing threshold density and crack density
+            pattern = ~img_n.astype(bool)
+            pattern = np.logical_or(pattern, pattern_n1)
+            pattern_n1 = pattern
+            y, x = pattern.shape
+            threshold.append(np.sum(pattern) / (x * y))
+            c, skel_img = cracks_skeletonize(pattern, self.theta, self.min_size)
+            cd.append(crack_density(c, x * y))
+            cracks.append(c)
+        return cd, cracks, threshold
+
+    # TODO find faster convolution method or separate gauss kernel.
+    # Convolution form scipy.signal is not exactly the same as from scipy.ndimage but takes much longer.
+    # Convolution from scipy.signal is used. The only difference occurs at the edges of the image but it is ~50x
+    # faster form testing with 1900x1800 images and a kernel of 77x77. The mean squared error between tests was ~10e-7
+    # It seems that the padding in scipy.signal.convolve is different since only the edges are affected.
+    # With the additional padding in this function the difference is even smaller.
+    @staticmethod
+    def anisotropic_gauss_filter(image, kernel):
+        h, w = kernel.shape
+        h = int(h / 2)
+        w = int(w / 2)
+        temp = np.pad(image, ((h, h), (w, w)), mode='reflect')
+        return convolve(temp, kernel, mode='same', method='fft')[h:-h, w:-w]
+
+    @staticmethod
+    def make_footprint(width, theta):
+        p_w = max(int(width / 4), 1)
+        closing_footprint = rotate(np.pad(np.ones((width * 4, p_w), dtype=bool), (p_w, p_w)), -theta, resize=True)
+        ind = np.argwhere(closing_footprint == 1)
+        c_min, c_max = np.min(ind, axis=0), np.max(ind, axis=0) + 1
+        return closing_footprint[c_min[0]: c_max[0], c_min[1]: c_max[1]]
+
+
+def detect_cracks(images, theta=0, crack_width=10, ar=2, bandwidth=1, n_stds=3,
+                  min_size=5, threshold='yen', sensitivity=0):
+    """
+    Crack detection based on a simpler version of the algorithm by J.A. Glud.
+    All images are treated separately.
+
+    Parameters
+    ----------
+    images: ImageStack, list
+        Image stack or list of grayscale images on which the crack detection will be performed. This algorithm treats
+        each image separately as no image influences the results of the other images.
     theta: float
         Angle of the cracks in respect to a horizontal line in degrees
     crack_width: int
@@ -430,7 +609,7 @@ def detect_cracks(images, theta=0, crack_width=10, ar=2, bandwidth=1, n_stds=3,
         The size of the gabor kernel in standard deviations. A smaller kernel is faster but also less accurate.
         Default: 3
     min_size: int, optional
-        The minimal number of pixels a crack can be. Cracks under this size will not get counted. Default: 1
+        The minimal number of pixels a crack can be. Cracks under this size will not get counted. Default: 5
     threshold: str
         Method of determining the threshold between foreground and background. Choose between 'otsu' or 'yen'.
         Generally, yen is not as sensitive as otsu. For blurry images with lots of noise yen is nearly always
@@ -457,9 +636,9 @@ def detect_cracks(images, theta=0, crack_width=10, ar=2, bandwidth=1, n_stds=3,
     """
 
     frequency = 1 / crack_width
-    sig = sigma_gabor(crack_width, bandwidth)
+    sig = _sigma_gabor(crack_width, bandwidth)
 
-    temp = CrackDetectionTWLI(theta, frequency, bandwidth, sig, sig*ar, n_stds, min_size, threshold, sensitivity)
+    temp = CrackDetectionTWLI(theta, frequency, bandwidth, sig, sig * ar, n_stds, min_size, threshold, sensitivity)
     rho_c, cracks, rho_th = [], [], []
     for ind, img in enumerate(images):
         x, y, z = temp.detect_cracks(img)
@@ -469,21 +648,20 @@ def detect_cracks(images, theta=0, crack_width=10, ar=2, bandwidth=1, n_stds=3,
     return rho_c, cracks, rho_th
 
 
-def detect_cracks_overloaded(images, theta=0, crack_width=10, ar=2, bandwidth=1, n_stds=3,
-                             min_size=5, threshold='yen', sensitivity=0):
+def detect_cracks_glud(images, theta=0, crack_width=10, ar=2, bandwidth=1, n_stds=3,
+                       min_size=5, threshold='yen', sensitivity=0):
     """
-    Crack detection with overloaded gabor pattern.
+    Crack detection using a slightly modified version of the `algorithm from J.A. Glud.
+    <https://www.researchgate.net/publication/292077678_Automated_counting_of_off-axis_tunnelling_cracks_using_digital_image_processing>`_
 
-    The gabor pattern is the foreground of the gabor image. The pattern of the nth image gets overloaded
-    with the n-1 pattern.
-
-    :math:`P_n = P_n | P_{n-1}`
-
-    Essentially, this means that the area detected as crack one image before is added to the current crack area.
-    The cracks are then detected form this overloaded pattern.
+    This crack detection algorithm only works on an image stack with consecutive images of one specimen.
+    In contrast to the original algorithm from J.A. Glud, no change detection is applied in this implementation since
+    it can be easily applied as a preprocessing step if needed (see :mod:`~.stack_operations`)
 
     Parameters
     ----------
+    images: ImageStack, list
+        Image stack or list with consecutive grayscale images (np.ndarray) of the same shape and aligned.
     theta: float
         Angle of the cracks in respect to a horizontal line in degrees
     crack_width: int
@@ -498,13 +676,13 @@ def detect_cracks_overloaded(images, theta=0, crack_width=10, ar=2, bandwidth=1,
         The size of the gabor kernel in standard deviations. A smaller kernel is faster but also less accurate.
         Default: 3
     min_size: int, optional
-        The minimal number of pixels a crack can be. Cracks under this size will not get counted. Default: 1
+        The minimal number of pixels a crack can be. Cracks under this size will not get counted. Default: 5
     threshold: str
         Method of determining the threshold between foreground and background. Choose between 'otsu' or 'yen'.
         Generally, yen is not as sensitive as otsu. For blurry images with lots of noise yen is nearly always
         better than otsu.
     sensitivity: float, optional
-        Adds or subtracts x percent of the input image range to the Otsu-threshold. E.g. sensitivity=-10 will lower
+        Adds or subtracts x percent of the input image range to the threshold. E.g. sensitivity=-10 will lower
         the threshold to determine foreground by 10 percent of the input image range. For crack detection with
         bad image quality or lots of artefacts it can be helpful to lower the sensitivity to avoid too much false
         detections.
@@ -525,9 +703,9 @@ def detect_cracks_overloaded(images, theta=0, crack_width=10, ar=2, bandwidth=1,
     """
 
     frequency = 1 / crack_width
-    sig = sigma_gabor(crack_width, bandwidth)
+    sig = _sigma_gabor(crack_width, bandwidth)
 
-    temp = CrackDetectionTWLI(theta, frequency, bandwidth, sig, sig*ar, n_stds, min_size, sensitivity)
+    temp = CrackDetectionTWLI(theta, frequency, bandwidth, sig, sig * ar, n_stds, min_size, sensitivity)
     rho_c, cracks, rho_th = [], [], []
 
     # pattern of the n-1st image
@@ -545,3 +723,53 @@ def detect_cracks_overloaded(images, theta=0, crack_width=10, ar=2, bandwidth=1,
         rho_c.append(crack_density(c, x * y))
         cracks.append(c)
     return rho_c, cracks, rho_th
+
+
+@deprecate_with_doc(msg='This function is deprecated in version 0.2 and will be removed in the next version! Use '
+                        '"detect_cracks_glud" instead!')
+def detect_cracks_overloaded(images, theta=0, crack_width=10, ar=2, bandwidth=1, n_stds=3,
+                             min_size=5, threshold='yen', sensitivity=0):
+    return detect_cracks_glud(images, theta, crack_width, ar, bandwidth, n_stds, min_size, threshold, sensitivity)
+
+
+def detect_cracks_bender(images, theta=0, crack_width=10, threshold=0.96, min_size=None):
+    r"""
+    Crack detection `algorithm by J.J. Bender.
+    <https://www.researchgate.net/publication/350967596_Effect_of_variable_amplitude_block_loading_on_intralaminar_crack_initiation_and_propagation_in_multidirectional_GFRP_laminate>`_
+
+    This crack detection algorithm only works on an image stack with consecutive images of one specimen.
+    The first image is used as the background image.
+    No cracks are detected in the first image. The images must be aligned for this algorithm to
+    work correctly. Cracks can only be detected in grayscale images with the same shape.
+
+    Parameters
+    ----------
+    images: ImageStack, list
+        Image stack or list with consecutive grayscale images (np.ndarray) of the same shape and aligned.
+    theta: float
+        Angle of the cracks in respect to a horizontal line in degrees
+    crack_width: int
+        The approximate width of an average crack in pixel. This determines the width of the detected features.
+    threshold: float, optional
+        Threshold of what is perceived as a crack after all filters. E.g. 0.96 means that all gray values over 0.96
+        in the filtered image are cracks. This value should be close to 1. A lower value will detect cracks with a
+        weak signal but more artefacts as well. Default: 5
+    min_size: int, optional
+        The minimal number of pixels a crack can be. Cracks under this size will not get counted. Default: 5
+
+    Returns
+    -------
+    rho_c: float
+        Crack density [1/px]
+    cracks: np.ndarray
+        Array with the coordinates of the crack with the following structure:
+        ([[x0, y0],[x1,y1], [...]]) where x0 and y0 are the starting coordinates and x1, y1
+        the end of one crack. Each crack is represented by a 2x2 array stacked into a bigger array (x,2,2).
+    rho_th: float
+        A measure how much of the area of the input image is detected as foreground. If the gabor filter can not
+        distinguish between cracks with very little space in between the crack detection will break down and
+        lead to false results. If this value is high but the crack density is low, this is an indicator that
+        the crack detection does not work with the given input parameters and the input image.
+    """
+    cd = CrackDetectionBender(theta, crack_width, threshold, min_size)
+    return cd.detect_cracks(images)

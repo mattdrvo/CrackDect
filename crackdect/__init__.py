@@ -1,4 +1,4 @@
-from .crack_detection import *
+from .crack_detection import detect_cracks, detect_cracks_bender, detect_cracks_glud
 from .imagestack import ImageStack, ImageStackSQL
-from ._io import *
+from .io import *
 from .stack_operations import *
