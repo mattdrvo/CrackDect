@@ -131,3 +131,8 @@ dmypy.json
 /docs/GIF/
 /docs/build/
 /test_images/
+/sandbox/
+/debug_utils.py
+/gif_maker.ipynb
+/sandbox.py
+/example_images/

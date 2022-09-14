@@ -7,7 +7,7 @@ This package provides crack detection algorithms for tunneling off axis cracks i
 glass fiber reinforced materials.
 
 | Full paper: `<https://www.sciencedirect.com/science/article/pii/S2352711021001205>`_
-| Full documentation: `<https://crackdect.readthedocs.io/en/latest>`_
+| GitHub Repo: `<https://github.com/mattdrvo/CrackDect>`_
 
 If you use this package in publications, please cite the paper.
 

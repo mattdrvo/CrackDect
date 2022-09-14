@@ -4,7 +4,7 @@ Shift Correction
 ================
 
 In image series taken during tensile mechanical tests, it often appears that the specimen is moving
-relative to the background linke the specimen in this gif.
+relative to the background like the specimen in this gif.
 
 .. figure:: images/shift_example.gif
     :width: 400
@@ -66,7 +66,7 @@ throughout the whole image stack.
 A best practice example would be to mark specimen at four positions
 to enable reliable shift-distortion correction.
 
-.. figure:: images/specimen_shift_dist_corr.png
+.. figure:: images/specimen_shift_dist_corr.PNG
     :height: 250
 
 The red crosses are used to correct the shift and distortion of the image while the
